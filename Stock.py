@@ -1,10 +1,22 @@
+import random
+
 # Represents a Stock object in the market that has a constantly changing price.
-import random 
 
 class Stock:
-    def __init__(self, abbr, price):
+    def __init__(self, abbr, price, volatility=0.01, drift=0.0):
+        """
+        abbr : String, ticker symbol for the stock (e.g. 'AAPL').
+        price : float, Initial mid-price of the stock.
+        volatility : float, For example, 0.01 ≈ 1% volatility per step.
+        drift : float, 
+            Expected average return per step.  It is 0 for a pure random walk,
+            but we can set it to a positive value to simulate a trend.
+            For example, 0.01 ≈ 1% drift per step.
+        """
         self.abbr = abbr
-        self.price = price
+        self.price = float(price)
+        self.volatility = float(volatility)
+        self.drift = float(drift)
     
     def __str__(self):
         return f"{self.abbr}: ${self.price:.2f}"
@@ -13,9 +25,25 @@ class Stock:
         return f"Stock({self.abbr}, {self.price:.2f})"
 
     def get_price(self):
-        # some random variation in price to simulate market changes
-        variation = random.uniform(-0.05, 0.05)  # -5% to +5% variation
-        return self.price * (1 + variation)
-    
-    def update_price(self, new_price):
-        self.price = new_price
+        return self.price
+
+    # the price changes over time,
+    # when we want to advance the true price in our environment 
+    #we can call self.stock.step() 
+    def step(self):
+        """
+        Advance the price one step using a Gaussian random walk.
+        """
+        shock = random.gauss(self.drift, self.volatility)
+        self.price *= (1 + shock)
+
+        # Prevent negative price
+        if self.price <= 0:
+            self.price = 0.01
+
+
+#test to make sure it works
+s = Stock("test", 100.0, volatility=0.02)  
+for t in range(10):
+    s.step()
+    print(s)
