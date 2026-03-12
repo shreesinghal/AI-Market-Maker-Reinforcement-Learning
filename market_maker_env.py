@@ -56,9 +56,17 @@ class MarketMakingEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
-        # TODO: initialize mid_price, inventory, volatility, etc.
-        # TODO: return (observation, info)
-        pass
+        self.inventory = 0
+        self.mid_price = self.initial_price
+        self.volatility = 0.02
+        self.time_remaining = 1.0
+        self.current_step = 0
+        self.cash = 0.0
+
+        observation = self._get_observation()
+        info = {}
+
+        return observation, info
 
     def step(self, action):
         """
