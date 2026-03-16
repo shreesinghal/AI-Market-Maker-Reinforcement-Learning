@@ -14,8 +14,7 @@ class MarketMakingEnv(gym.Env):
     def __init__(self, config=None):
         super().__init__()
 
-        # --- Default configuration ---
-        # Use provided config or fall back to defaults
+        # Default config
         cfg = config or {}
         self.tick_size = cfg.get("tick_size", 0.01)       # minimum price increment
         self.max_ticks = cfg.get("max_ticks", 5)           # max ticks away from mid
@@ -25,14 +24,14 @@ class MarketMakingEnv(gym.Env):
         self.prev_equity = 0.0
         self.alpha = cfg.get("alpha", 0.001)
 
-        # --- Action space ---
-        # Two discrete choices: bid offset (1-5 ticks) and ask offset (1-5 ticks)
+        # Action space
+        # Each action is a pair of integers: (bid_offset, ask_offset)
         # MultiDiscrete([5, 5]) means each value ranges from 0 to 4
         # We add 1 when using them so the actual range is 1 to 5 ticks
         self.action_space = spaces.MultiDiscrete([self.max_ticks, self.max_ticks])
 
-        # --- Observation space ---
-        # 4 continuous values: [inventory, mid_price, volatility, time_remaining]
+        # Observation space
+        # [inventory, mid_price, volatility, time_remaining]
         self.observation_space = spaces.Box(
             low=np.array([
                 -self.max_inventory,  # inventory: can be short (negative)
@@ -48,7 +47,7 @@ class MarketMakingEnv(gym.Env):
             ], dtype=np.float32),
         )
 
-        # --- Internal state (set properly in reset()) ---
+        # Internal state (for reset())
         self.inventory = 0
         self.mid_price = self.initial_price
         self.volatility = 0.0
@@ -57,16 +56,23 @@ class MarketMakingEnv(gym.Env):
         self.cash = 0.0  # tracks money from trades
 
     def reset(self, seed=None, options=None):
-        """Reset the environment to start a new episode."""
         super().reset(seed=seed)
 
-        # TODO: initialize mid_price, inventory, volatility, etc.
-        # TODO: return (observation, info)
-        pass
+        self.inventory = 0
+        self.mid_price = self.initial_price
+        self.volatility = 0.02
+        self.time_remaining = 1.0
+        self.current_step = 0
+        self.cash = 0.0
+
+        observation = self._get_observation()
+        info = {}
+
+        return observation, info
 
     def step(self, action):
         """
-        Execute one time step:
+        At each time step:
         1. Decode action into bid/ask prices
         2. Simulate price movement
         3. Check if any orders get filled
@@ -127,7 +133,7 @@ class MarketMakingEnv(gym.Env):
 
 
     def _get_observation(self):
-        """Package current state into the observation array."""
+        """Gives current state as observation array."""
         return np.array([
             self.inventory,
             self.mid_price,
