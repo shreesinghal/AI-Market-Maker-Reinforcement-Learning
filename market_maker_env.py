@@ -22,6 +22,8 @@ class MarketMakingEnv(gym.Env):
         self.max_inventory = cfg.get("max_inventory", 100)  # inventory cap (long or short)
         self.initial_price = cfg.get("initial_price", 100.0)
         self.max_steps = cfg.get("max_steps", 1000)         # time steps per episode
+        self.prev_equity = 0.0
+        self.alpha = cfg.get("alpha", 0.001)
 
         # --- Action space ---
         # Two discrete choices: bid offset (1-5 ticks) and ask offset (1-5 ticks)
@@ -72,7 +74,57 @@ class MarketMakingEnv(gym.Env):
         5. Return (observation, reward, terminated, truncated, info)
         """
         # TODO: implement the core logic
-        pass
+
+        bid_ticks, ask_ticks = action
+
+        # convert ticks to prices
+        bid_offset = (bid_ticks + 1) * self.tick_size
+        ask_offset = (ask_ticks + 1) * self.tick_size
+
+        mid_price = self.stock.get_price()
+
+        bid_price = mid_price - bid_offset
+        ask_price = mid_price + ask_offset
+
+        # simulate buyers sellers TODO
+        # closer quotes = higher fill probability
+        bid_distance = abs(mid_price - bid_price)
+        ask_distance = abs(ask_price - mid_price)
+
+        # execute trades
+        if False : #TODO: if someone sold we buy 
+            self.inventory += 1
+            self.cash -= bid_price
+
+        if False: #TODO if someone bought we sold
+            self.inventory -= 1
+            self.cash += ask_price
+
+        #price chang
+        self.stock.step()
+        self.mid_price = self.stock.get_price()
+
+        # reward
+        equity = self.cash + self.inventory * self.mid_price
+        reward = equity - self.prev_equity
+        inventory_penalty = self.alpha * (self.inventory ** 2)
+        reward -= inventory_penalty
+        self.prev_equity = equity
+
+        # update time and step
+        self.current_step += 1
+        self.time_remaining = 1 - (self.current_step / self.max_steps)
+
+        terminated = False
+        truncated = self.current_step >= self.max_steps
+
+        observation = self._get_observation()
+        info = {"equity": equity}
+
+        return observation, reward, terminated, truncated, info
+        
+
+
 
     def _get_observation(self):
         """Package current state into the observation array."""
