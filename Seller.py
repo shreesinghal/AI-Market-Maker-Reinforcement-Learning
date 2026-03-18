@@ -1,24 +1,35 @@
+import numpy as np
+
+
 class Seller:
-    def __init__(self, name, inventory = {}, cash_balance = 0):
-        self.name = name
-        self.inventory = inventory
-        self.cash_balance = cash_balance
+    """
+    A seller that arrives at the market and decides
+    whether to sell at the market maker's bid price.
 
-    def calculate_acceptable_ask_price_for_stock(self, stock) -> float:
-        # This function calculates the minimum price the seller is willing to accept for a stock
-        return stock.get_price() * 0.90  # FOR NOW
+    The closer the bid price is to mid-price, the more likely
+    the seller is to trade.
+    """
 
-    def attempt_sell(self, stock, amount, market_maker) -> bool:
-        if stock not in self.inventory or self.inventory[stock] < amount:
-            print(f"{self.name} does not have enough {stock.abbr} to sell.")
-            return False
+    def wants_to_trade(self, bid_price, mid_price, tick_size, rng=None):
+        """
+        Decide whether this seller will trade at the given bid price.
 
-        acceptable_price = self.calculate_acceptable_ask_price_for_stock(stock)
-        if market_maker.bid_price(stock) < acceptable_price:
-            print(f"{self.name} finds the price too low to sell {stock.abbr}")
-            return False
-        if market_maker.buy_stock(stock, amount):
-            self.inventory[stock] -= amount
-            self.cash_balance += market_maker.bid_price(stock) * amount
-            return True
-        return False
+        Parameters:
+            bid_price  : float, the market maker's bid (buy) price
+            mid_price  : float, current mid-price of the stock
+            tick_size  : float, minimum price increment
+            rng        : numpy random generator, for reproducibility
+
+        Returns:
+            bool, True if the seller trades
+        """
+        rng = rng or np.random.default_rng()
+
+        # How many ticks below mid is the bid?
+        ticks_away = (mid_price - bid_price) / tick_size
+
+        # Fill probability decreases as the bid moves further from mid
+        # At 1 tick away: ~80% chance, decaying by 15% per additional tick
+        fill_prob = max(0.0, 0.95 - 0.15 * ticks_away)
+
+        return rng.random() < fill_prob

@@ -1,23 +1,35 @@
+import numpy as np
+
+
 class Buyer:
-    def __init__(self, name, inventory = {}, cash_balance = 10000):
-        self.name = name
-        self.inventory = inventory
-        self.cash_balance = cash_balance
+    """
+    A buyer that arrives at the market and decides
+    whether to buy at the market maker's ask price.
 
-    def calculate_acceptable_bid_price_for_stock(self, stock) -> float:
-        # This function calculates the maximum price the buyer is willing to pay for a stock
-        return stock.get_price() * 1.10  # FOR NOW
+    The closer the ask price is to mid-price, the more likely
+    the buyer is to trade.
+    """
 
-    def attempt_buy(self, stock, amount, market_maker) -> bool:    
-        if market_maker.ask_price(stock) * amount > self.cash_balance:
-            print(f"{self.name} does not have enough cash to buy {amount} units of {stock.abbr}")
-            return False
+    def wants_to_trade(self, ask_price, mid_price, tick_size, rng=None):
+        """
+        Decide whether this buyer will trade at the given ask price.
 
-        acceptable_price = self.calculate_acceptable_bid_price_for_stock(stock)
-        if market_maker.ask_price(stock) > acceptable_price:
-            print(f"{self.name} finds the price too high to buy {stock.abbr}")
-            return False
-        if market_maker.sell_stock(stock, amount):
-            self.cash_balance -= market_maker.ask_price(stock) * amount
-            return True
-        return False
+        Parameters:
+            ask_price  : float, the market maker's ask (sell) price
+            mid_price  : float, current mid-price of the stock
+            tick_size  : float, minimum price increment
+            rng        : numpy random generator, for reproducibility
+
+        Returns:
+            bool, True if the buyer trades
+        """
+        rng = rng or np.random.default_rng()
+
+        # How many ticks above mid is the ask?
+        ticks_away = (ask_price - mid_price) / tick_size
+
+        # Fill probability decreases as the ask moves further from mid
+        # At 1 tick away: ~80% chance, decaying by 15% per additional tick
+        fill_prob = max(0.0, 0.95 - 0.15 * ticks_away)
+
+        return rng.random() < fill_prob
