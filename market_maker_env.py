@@ -1,6 +1,9 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+from Buyer import Buyer
+from Seller import Seller
+from Stock import Stock
 
 
 class MarketMakingEnv(gym.Env):
@@ -23,6 +26,8 @@ class MarketMakingEnv(gym.Env):
         self.max_steps = cfg.get("max_steps", 1000)         # time steps per episode
         self.prev_equity = 0.0
         self.alpha = cfg.get("alpha", 0.001)
+        self.buyer_arrival_rate = cfg.get("buyer_arrival_rate", 3)
+        self.seller_arrival_rate = cfg.get("seller_arrival_rate", 3)
 
         # Action space
         # Each action is a pair of integers: (bid_offset, ask_offset)
@@ -97,21 +102,31 @@ class MarketMakingEnv(gym.Env):
         bid_distance = abs(mid_price - bid_price)
         ask_distance = abs(ask_price - mid_price)
 
-        # execute trades
-        if False : #TODO: if someone sold we buy 
-            self.inventory += 1
-            self.cash -= bid_price
+        # Simulate buyer arrivals
+        n_buyers = self.np_random.poisson(lam=self.buyer_arrival_rate)
+        for i in range(n_buyers):
+            buyer = Buyer()
+            if buyer.wants_to_trade(ask_price, mid_price, self.tick_size, rng=self.np_random):
+                self.inventory -= 1
+                self.cash += ask_price
 
-        if False: #TODO if someone bought we sold
-            self.inventory -= 1
-            self.cash += ask_price
+        # Simulate seller arrivals
+        n_sellers = self.np_random.poisson(lam=self.seller_arrival_rate)
+        for i in range(n_sellers):
+            seller = Seller()
+            if seller.wants_to_trade(bid_price, mid_price, self.tick_size, rng=self.np_random):
+                self.inventory += 1
+                self.cash -= bid_price
 
-        #price chang
+        # save previous mid_price
+        previous_price = self.mid_price
+
+        #price change
         self.stock.step()
         self.mid_price = self.stock.get_price()
 
         # reward
-        equity = self.cash + self.inventory * self.mid_price
+        equity = self.cash + self.inventory * previous_price
         reward = equity - self.prev_equity
         inventory_penalty = self.alpha * (self.inventory ** 2)
         reward -= inventory_penalty
