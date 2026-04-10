@@ -3,11 +3,8 @@ import numpy as np
 
 class Buyer:
     """
-    A buyer that arrives at the market and decides
-    whether to buy at the market maker's ask price.
-
-    The closer the ask price is to mid-price, the more likely
-    the buyer is to trade.
+    Simple buyer model
+    Fill probability falls as ask moves away from mid
     """
 
     def wants_to_trade(self, ask_price, mid_price, tick_size, rng=None):
@@ -25,11 +22,10 @@ class Buyer:
         """
         rng = rng or np.random.default_rng()
 
-        # How many ticks above mid is the ask?
+        # Quote distance from mid in ticks
         ticks_away = (ask_price - mid_price) / tick_size
 
-        # Fill probability decreases as the ask moves further from mid
-        # At 1 tick away: ~80% chance, decaying by 15% per additional tick
-        fill_prob = max(0.0, 0.95 - 0.15 * ticks_away)
+        # Smoothly decreasing fill curve
+        fill_prob = 0.55 / (1.0 + np.exp((ticks_away - 0.5) / 0.9))
 
         return rng.random() < fill_prob
