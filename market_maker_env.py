@@ -147,21 +147,25 @@ class MarketMakingEnv(gym.Env):
 
         # Simulate buyer arrivals
         n_buyers = self.np_random.poisson(lam=self.buyer_arrival_rate)
+        buyer_fills = 0
         for _ in range(n_buyers):
             buyer = Buyer()
             if buyer.wants_to_trade(ask_price, mid_price, self.tick_size, rng=self.np_random):
                 if self.inventory > -self.max_inventory:
                     self.inventory -= 1
                     self.cash += ask_price
+                    buyer_fills += 1
 
         # Simulate seller arrivals
         n_sellers = self.np_random.poisson(lam=self.seller_arrival_rate)
+        seller_fills = 0
         for _ in range(n_sellers):
             seller = Seller()
             if seller.wants_to_trade(bid_price, mid_price, self.tick_size, rng=self.np_random):
                 if self.inventory < self.max_inventory:
                     self.inventory += 1
                     self.cash -= bid_price
+                    seller_fills += 1
 
         # Price change
         self.stock.step()
@@ -184,7 +188,16 @@ class MarketMakingEnv(gym.Env):
         truncated = self.current_step >= self.max_steps
 
         observation = self._get_observation()
-        info = {"equity": equity}
+        info = {
+            "equity":       equity,
+            "bid_price":    bid_price,
+            "ask_price":    ask_price,
+            "mid_price":    mid_price,
+            "n_buyers":     n_buyers,
+            "n_sellers":    n_sellers,
+            "buyer_fills":  buyer_fills,
+            "seller_fills": seller_fills,
+        }
 
         return observation, reward, terminated, truncated, info
 
