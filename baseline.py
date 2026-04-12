@@ -3,10 +3,16 @@ import matplotlib.pyplot as plt
 from market_maker_env import MarketMakingEnv
 
 env = MarketMakingEnv(config={
-    "max_steps":            500,
-    "buyer_arrival_rate":   3,
-    "seller_arrival_rate":  3,
-    "alpha":                0.001,
+    "max_steps":                   500,
+    "buyer_arrival_rate":          1,
+    "seller_arrival_rate":         1,
+    "alpha":                       0.01,
+    "tick_size":                   0.05,
+    "max_ticks":                   5,
+    "stock_volatility":            0.0015,
+    "adverse_selection_strength":  0.0025,
+    "maker_fee":                   0.015,
+    "terminal_inventory_penalty":  1.0,
 })
 
 n_episodes = 3000

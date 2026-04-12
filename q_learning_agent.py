@@ -10,17 +10,17 @@ class QLearningAgent:
     The continuous observation space is discretized into bins so we can
     maintain a finite Q-table.
 
-    State dimensions
+    State dimensions (all observations are normalized by the env)
     ----------------
-    inventory     : -max_inventory … +max_inventory  → inv_bins
-    price_ratio   : mid_price / initial_price         → price_bins
-    volatility    : stock volatility                  → vol_bins
-    time_remaining: 0 … 1                             → time_bins
+    inv_norm      : inventory / max_inventory  ∈ [-1, 1]    → inv_bins
+    price_ratio   : mid_price / initial_price  ∈ [0.7, 1.3] → price_bins
+    volatility    : EWMA of |returns|          ∈ [0, 0.01]  → vol_bins
+    time_remaining: 0 … 1                                   → time_bins
 
     Action space
     ------------
-    MultiDiscrete([max_ticks, max_ticks]) is flattened to a single integer
-    index so the Q-table stays 2-D (state × action).
+    Discrete(max_ticks²) — a single integer encoding (bid_ticks * max_ticks + ask_ticks).
+    Used directly as the Q-table action index.
     """
 
     def __init__(self, env: MarketMakingEnv, config: dict = None):
@@ -35,62 +35,58 @@ class QLearningAgent:
         self.epsilon_decay = cfg.get("epsilon_decay",  0.995)
 
         # ── Discretisation edges ─────────────────────────────────────────
-        self.inv_bins   = np.linspace(-env.max_inventory, env.max_inventory, 20)
-        self.price_bins = np.array([0.7, 0.85, 0.93, 0.97, 1.0,
-                                    1.03, 1.07, 1.15, 1.30])   # ratios vs initial
-        self.vol_bins   = np.array([0.005, 0.01, 0.02, 0.04, 0.08])
-        self.time_bins  = np.linspace(0.0, 1.0, 10)
+        # Inventory: normalized to [-1, 1]
+        self.inv_bins = np.linspace(-1.0, 1.0, 12)      # 13 buckets
 
-        # Number of buckets in each dimension (digitize returns 1-based indices)
-        n_inv   = len(self.inv_bins)   + 1
-        n_price = len(self.price_bins) + 1
-        n_vol   = len(self.vol_bins)   + 1
-        n_time  = len(self.time_bins)  + 1
+        # Price ratio: finer resolution near 1.0 where most time is spent
+        self.price_bins = np.array([0.85, 0.93, 0.97, 0.99, 1.0,
+                                    1.01, 1.03, 1.07, 1.15])  # 10 buckets
+
+        # Volatility: EWMA of |returns|, typically 0.0005–0.005
+        self.vol_bins = np.array([0.0005, 0.001, 0.0015, 0.002, 0.003])  # 6 buckets
+
+        # Time remaining: [0, 1]
+        self.time_bins = np.linspace(0.0, 1.0, 10)      # 11 buckets
+
+        # Number of buckets (digitize returns 1-based, so bins+1 possible values)
+        n_inv   = len(self.inv_bins)   + 1   # 13
+        n_price = len(self.price_bins) + 1   # 10
+        n_vol   = len(self.vol_bins)   + 1   # 6
+        n_time  = len(self.time_bins)  + 1   # 11
 
         # ── Action space ─────────────────────────────────────────────────
-        self.n1 = int(env.action_space.nvec[0])   # bid tick choices
-        self.n2 = int(env.action_space.nvec[1])   # ask tick choices
-        self.n_actions = self.n1 * self.n2
+        self.n_actions = env.action_space.n   # 25 (5×5)
 
         # ── Q-table  shape: (inv, price, vol, time, action) ──────────────
+        # = (13, 10, 6, 11, 25) = 214,500 entries
         self.q_table = np.zeros((n_inv, n_price, n_vol, n_time, self.n_actions))
 
     # ── State helpers ────────────────────────────────────────────────────
 
     def discretize(self, obs: np.ndarray) -> tuple:
-        inventory, mid_price, volatility, time_remaining = obs
-        price_ratio = mid_price / self.env.initial_price
+        inv_norm, price_ratio, volatility, time_remaining = obs
 
-        inv_idx   = int(np.digitize(inventory,      self.inv_bins))
+        inv_idx   = int(np.digitize(inv_norm,       self.inv_bins))
         price_idx = int(np.digitize(price_ratio,    self.price_bins))
         vol_idx   = int(np.digitize(volatility,     self.vol_bins))
         time_idx  = int(np.digitize(time_remaining, self.time_bins))
 
         return (inv_idx, price_idx, vol_idx, time_idx)
 
-    # ── Action helpers ───────────────────────────────────────────────────
-
-    def flatten_action(self, action: np.ndarray) -> int:
-        return int(action[0]) * self.n2 + int(action[1])
-
-    def unflatten_action(self, idx: int) -> np.ndarray:
-        return np.array([idx // self.n2, idx % self.n2])
-
     # ── Policy ───────────────────────────────────────────────────────────
 
-    def select_action(self, state: tuple) -> np.ndarray:
-        """Epsilon-greedy action selection."""
+    def select_action(self, state: tuple) -> int:
+        """Epsilon-greedy action selection. Returns an int in [0, n_actions)."""
         if np.random.random() < self.epsilon:
-            return self.env.action_space.sample()
-        best_idx = int(np.argmax(self.q_table[state]))
-        return self.unflatten_action(best_idx)
+            return int(self.env.action_space.sample())
+        return int(np.argmax(self.q_table[state]))
 
     # ── Learning update ──────────────────────────────────────────────────
 
-    def update(self, state, action_idx, reward, next_state, done):
-        current_q = self.q_table[state][action_idx]
+    def update(self, state, action, reward, next_state, done):
+        current_q = self.q_table[state][action]
         target = reward if done else reward + self.gamma * np.max(self.q_table[next_state])
-        self.q_table[state][action_idx] += self.alpha * (target - current_q)
+        self.q_table[state][action] += self.alpha * (target - current_q)
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
@@ -115,14 +111,13 @@ class QLearningAgent:
             done = False
 
             while not done:
-                action     = self.select_action(state)
-                action_idx = self.flatten_action(action)
+                action = self.select_action(state)
 
                 next_obs, reward, terminated, truncated, _ = self.env.step(action)
                 done = terminated or truncated
 
                 next_state = self.discretize(next_obs)
-                self.update(state, action_idx, reward, next_state, done)
+                self.update(state, action, reward, next_state, done)
 
                 state        = next_state
                 total_reward += reward
@@ -140,14 +135,22 @@ class QLearningAgent:
 
     # ── Evaluation ───────────────────────────────────────────────────────
 
-    def evaluate(self, n_episodes: int = 100) -> dict:
-        """Run greedy policy (epsilon=0) and return summary stats."""
+    def evaluate(self, n_episodes: int = 100, seeds: list = None) -> dict:
+        """
+        Run greedy policy (epsilon=0) and return summary stats + per-episode lists.
+
+        Parameters
+        ----------
+        seeds : list of int, optional
+            If provided, reset each episode with seeds[i] for reproducibility.
+        """
         saved_eps = self.epsilon
         self.epsilon = 0.0
 
-        rewards, equities = [], []
-        for _ in range(n_episodes):
-            obs, _ = self.env.reset()
+        rewards, equities, inventories = [], [], []
+        for i in range(n_episodes):
+            seed = seeds[i] if seeds is not None else None
+            obs, _ = self.env.reset(seed=seed)
             state = self.discretize(obs)
             total_reward = 0.0
             done = False
@@ -159,13 +162,18 @@ class QLearningAgent:
                 done = terminated or truncated
             rewards.append(total_reward)
             equities.append(info.get("equity", 0.0))
+            inventories.append(info.get("inventory", float(obs[0]) * self.env.max_inventory))
 
         self.epsilon = saved_eps
         return {
-            "mean_reward":  np.mean(rewards),
-            "std_reward":   np.std(rewards),
-            "mean_equity":  np.mean(equities),
-            "std_equity":   np.std(equities),
+            "mean_reward":              np.mean(rewards),
+            "std_reward":               np.std(rewards),
+            "mean_equity":              np.mean(equities),
+            "std_equity":               np.std(equities),
+            "mean_abs_final_inventory": np.mean(np.abs(inventories)),
+            "rewards":                  rewards,
+            "equities":                 equities,
+            "inventories":              inventories,
         }
 
     # ── Persistence ──────────────────────────────────────────────────────

@@ -1,5 +1,3 @@
-import random
-
 # Represents a Stock object in the market that has a constantly changing price.
 
 class Stock:
@@ -30,11 +28,12 @@ class Stock:
     # the price changes over time,
     # when we want to advance the true price in our environment 
     #we can call self.stock.step() 
-    def step(self):
+    def step(self, rng):
         """
         Advance the price one step using a Gaussian random walk.
+        rng : numpy random Generator (e.g. env.np_random)
         """
-        shock = random.gauss(self.drift, self.volatility)
+        shock = float(rng.normal(self.drift, self.volatility))
         self.price *= (1 + shock)
 
         # Prevent negative price
@@ -42,8 +41,8 @@ class Stock:
             self.price = 0.01
 
 
-#test to make sure it works
-s = Stock("test", 100.0, volatility=0.02)  
-for t in range(10):
-    s.step()
-    print(s)
+if __name__ == "__main__":
+    s = Stock("test", 100.0, volatility=0.02)
+    for t in range(10):
+        s.step()
+        print(s)
