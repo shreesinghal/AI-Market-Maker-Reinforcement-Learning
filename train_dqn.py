@@ -16,12 +16,12 @@ LR = 1e-3
 BATCH_SIZE = 64
 BUFFER_CAPACITY = 10000
 TARGET_UPDATE_FREQ = 100
-NUM_EPISODES = 300
-MAX_STEPS_PER_EPISODE = 1000
+NUM_EPISODES = 50
+MAX_STEPS_PER_EPISODE = 400
 
 EPS_START = 1.0
 EPS_END = 0.05
-EPS_DECAY = 0.995
+EPS_DECAY = 0.99  # reaches ~0.05 after ~300 episodes
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -90,10 +90,15 @@ def main():
     epsilon = EPS_START
     global_step = 0
 
+    all_rewards = []
+    all_profits = []
+    all_inventories = []
+
     for episode in range(NUM_EPISODES):
         state, _ = env.reset()
         total_reward = 0.0
         losses = []
+        episode_inventories = []
 
         for step in range(MAX_STEPS_PER_EPISODE):
             action = select_action(policy_net, state, epsilon, action_dim)
@@ -107,6 +112,7 @@ def main():
             if loss is not None:
                 losses.append(loss)
 
+            episode_inventories.append(abs(env.inventory))
             state = next_state
             total_reward += reward
             global_step += 1
@@ -119,6 +125,10 @@ def main():
 
         epsilon = max(EPS_END, epsilon * EPS_DECAY)
 
+        all_rewards.append(total_reward)
+        all_profits.append(info["equity"])
+        all_inventories.extend(episode_inventories)
+
         avg_loss = np.mean(losses) if losses else 0.0
         print(
             f"Episode {episode+1}/{NUM_EPISODES} | "
@@ -129,6 +139,12 @@ def main():
 
     torch.save(policy_net.state_dict(), "dqn_market_maker.pt")
     print("Training complete. Model saved to dqn_market_maker.pt")
+
+    print("\n===== Training Summary =====")
+    print(f"Total Reward (sum across all episodes): {sum(all_rewards):.2f}")
+    print(f"Avg Profit per Episode (final equity):  ${np.mean(all_profits):.2f}")
+    print(f"Final Episode Profit (final equity):    ${all_profits[-1]:.2f}")
+    print(f"Average Inventory (abs, all steps):     {np.mean(all_inventories):.2f}")
 
 
 if __name__ == "__main__":

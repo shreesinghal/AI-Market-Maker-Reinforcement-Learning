@@ -66,7 +66,6 @@ class MarketMakingEnv(gym.Env):
         self.max_inventory = cfg.get("max_inventory", 100)  # inventory cap (long or short)
         self.initial_price = cfg.get("initial_price", 100.0)
         self.max_steps = cfg.get("max_steps", 1000)         # time steps per episode
-        self.prev_equity = 0.0
         self.alpha = cfg.get("alpha", 0.01)
         self.buyer_arrival_rate = cfg.get("buyer_arrival_rate", 3)
         self.seller_arrival_rate = cfg.get("seller_arrival_rate", 3)
@@ -116,7 +115,6 @@ class MarketMakingEnv(gym.Env):
         self.time_remaining = 1.0
         self.current_step = 0
         self.cash = 0.0
-        self.prev_equity = 0.0
 
         observation = self._get_observation()
         info = {}
@@ -171,14 +169,15 @@ class MarketMakingEnv(gym.Env):
         self.stock.step()
         self.mid_price = self.stock.get_price()
 
-        # Reward
-        equity = self.cash + self.inventory * self.mid_price
-        reward = equity - self.prev_equity
-
-        # Square inventory so we penalize both positive and negative inventory
+        # Reward: spread income actually captured, minus inventory risk penalty.
+        # Using Δequity was wrong — price noise (±$2/step on 1 share) swamps
+        # the spread signal ($0.01–0.05/fill), making it impossible to learn.
+        spread_income = buyer_fills * ask_offset + seller_fills * bid_offset
         inventory_penalty = self.alpha * (self.inventory ** 2)
-        reward -= inventory_penalty
-        self.prev_equity = equity
+        reward = spread_income - inventory_penalty
+
+        # Track equity separately for logging
+        equity = self.cash + self.inventory * self.mid_price
 
         # Update time and step
         self.current_step += 1
