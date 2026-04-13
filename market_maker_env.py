@@ -67,11 +67,18 @@ class MarketMakingEnv(gym.Env):
         self.initial_price = cfg.get("initial_price", 100.0)
         self.max_steps = cfg.get("max_steps", 1000)         # time steps per episode
         self.alpha = cfg.get("alpha", 0.01)
+        self.time_risk_start_frac = cfg.get("time_risk_start_frac", 0.5)  # ramp starts when this fraction of time remains
+        self.time_risk_k = cfg.get("time_risk_k", 3.0)                   # max extra multiplier on inventory penalty
         self.buyer_arrival_rate = cfg.get("buyer_arrival_rate", 3)
         self.seller_arrival_rate = cfg.get("seller_arrival_rate", 3)
+        self.stock_volatility = cfg.get("stock_volatility", 0.02)
+        self.adverse_selection_strength = cfg.get("adverse_selection_strength", 0.0)
+        self.maker_fee = cfg.get("maker_fee", 0.0)
+        self.terminal_inventory_penalty = cfg.get("terminal_inventory_penalty", 0.0)
+        self.vol_ewma_beta = cfg.get("vol_ewma_beta", 0.94)
 
         # Initialize stock object
-        self.stock = Stock("APPL", self.initial_price, volatility=0.02)
+        self.stock = Stock("APPL", self.initial_price, volatility=self.stock_volatility)
 
         # Action space
         # Each action is a pair of integers: (bid_offset, ask_offset)
@@ -104,6 +111,7 @@ class MarketMakingEnv(gym.Env):
         self.time_remaining = 1.0
         self.current_step = 0
         self.cash = 0.0  # tracks money from trades
+        self.prev_equity = 0.0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -115,6 +123,7 @@ class MarketMakingEnv(gym.Env):
         self.time_remaining = 1.0
         self.current_step = 0
         self.cash = 0.0
+        self.prev_equity = 0.0
 
         observation = self._get_observation()
         info = {}
@@ -165,19 +174,42 @@ class MarketMakingEnv(gym.Env):
                     self.cash -= bid_price
                     seller_fills += 1
 
+        # Adverse selection: informed flow pushes price against market maker
+        net_order_flow = buyer_fills - seller_fills
+        if net_order_flow != 0 and self.adverse_selection_strength > 0:
+            self.stock.price *= (1 + self.adverse_selection_strength * net_order_flow)
+
+        # Maker fee (rebate per fill)
+        total_fills = buyer_fills + seller_fills
+        if total_fills > 0 and self.maker_fee > 0:
+            self.cash += self.maker_fee * total_fills * mid_price
+
         # Price change
         self.stock.step()
         self.mid_price = self.stock.get_price()
 
-        # Reward: spread income actually captured, minus inventory risk penalty.
-        # Using Δequity was wrong — price noise (±$2/step on 1 share) swamps
-        # the spread signal ($0.01–0.05/fill), making it impossible to learn.
-        spread_income = buyer_fills * ask_offset + seller_fills * bid_offset
-        inventory_penalty = self.alpha * (self.inventory ** 2)
-        reward = spread_income - inventory_penalty
+        # Update volatility with EWMA of absolute returns
+        if mid_price > 0:
+            ret = abs((self.mid_price - mid_price) / mid_price)
+            self.volatility = self.vol_ewma_beta * self.volatility + (1 - self.vol_ewma_beta) * ret
 
-        # Track equity separately for logging
+        # Reward = normalized equity change - ramped inventory penalty
         equity = self.cash + self.inventory * self.mid_price
+        profit_change = (equity - self.prev_equity) / self.initial_price
+
+        inv_frac_abs = abs(self.inventory / self.max_inventory)
+        if self.time_risk_start_frac <= 0:
+            time_progress = 1.0
+        else:
+            time_progress = np.clip(
+                (self.time_risk_start_frac - self.time_remaining) / self.time_risk_start_frac,
+                0.0,
+                1.0,
+            )
+        risk_multiplier = 1.0 + self.time_risk_k * time_progress
+        inventory_penalty = self.alpha * (inv_frac_abs ** 2) * risk_multiplier
+
+        reward = profit_change - inventory_penalty
 
         # Update time and step
         self.current_step += 1
@@ -186,9 +218,17 @@ class MarketMakingEnv(gym.Env):
         terminated = False
         truncated = self.current_step >= self.max_steps
 
+        # Terminal inventory penalty at episode end
+        if truncated and self.terminal_inventory_penalty > 0:
+            reward -= self.terminal_inventory_penalty * inv_frac_abs
+
+        reward = np.clip(reward, -5.0, 5.0)
+        self.prev_equity = equity
+
         observation = self._get_observation()
         info = {
             "equity":       equity,
+            "inventory":    self.inventory,
             "bid_price":    bid_price,
             "ask_price":    ask_price,
             "mid_price":    mid_price,

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \"import tkinter, matplotlib, torch, numpy; print\\('deps OK'\\)\")"
+      "Bash(python -c \"import tkinter, matplotlib, torch, numpy; print\\('deps OK'\\)\")",
+      "Bash(grep -E \"\\\\.\\(txt|md|cfg|ini|env\\)$|results|data|models|checkpoints\")"
     ]
   }
 }
