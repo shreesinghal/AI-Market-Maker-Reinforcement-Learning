@@ -1,10 +1,15 @@
+import argparse
+import csv
+import json
+import os
 import random
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from market_maker_env import MarketMakingEnv, DQN, ReplayBuffer
+from market_maker_env import MarketMakingEnv
+from dqn_agent         import DQN, ReplayBuffer
 
 
 # Hyperparameters
@@ -92,25 +97,45 @@ def train_step(policy_net, target_net, buffer, optimizer, global_step):
     return loss.item()
 
 
-def main():
-    set_seed(SEED)
-    env_config = {
-        "max_steps": MAX_STEPS_PER_EPISODE,
-        "tick_size": 0.02,
-        "max_ticks": 6,
-        "max_inventory": 30,
-        "stock_volatility": 0.0015,
-        "stock_drift": 0.0,
+def _load_env_config():
+    """Load env config from results/best_config.json (shared with the Q-learning
+    branch so both agents see the same environment). Falls back to inline
+    defaults if the file is missing."""
+    path = "results/best_config.json"
+    if os.path.exists(path):
+        with open(path) as f:
+            cfg = json.load(f)
+        # Map best_config.json keys → env constructor keys
+        env_config = {k: cfg[k] for k in cfg
+                      if k not in ("env_alpha", "epsilon_decay", "learning_rate",
+                                   "gamma", "epsilon_start", "epsilon_min")}
+        env_config["alpha"] = cfg["env_alpha"]
+        print(f"Loaded env config from {path}")
+        return env_config
+    # Fallback defaults (should match main's best_config.json)
+    print(f"'{path}' not found; using inline defaults")
+    return {
+        "max_steps":                  500,
+        "tick_size":                  0.05,
+        "max_ticks":                  5,
+        "max_inventory":              30,
+        "stock_volatility":           0.0015,
+        "stock_drift":                0.0,
         "adverse_selection_strength": 0.0025,
-        "maker_fee": 0.015,
-        "alpha": 0.02,
-        "terminal_inventory_penalty": 4.0,
-        "time_risk_start_frac": 0.25,
-        "time_risk_k": 3.5,
-        "vol_ewma_beta": 0.94,
-        "buyer_arrival_rate": 1.0,
-        "seller_arrival_rate": 1.0,
+        "maker_fee":                  0.015,
+        "alpha":                      0.005,
+        "terminal_inventory_penalty": 1.0,
+        "time_risk_start_frac":       0.25,
+        "time_risk_k":                3.0,
+        "vol_ewma_beta":              0.94,
+        "buyer_arrival_rate":         1,
+        "seller_arrival_rate":        1,
     }
+
+
+def main(eval_only: bool = False):
+    set_seed(SEED)
+    env_config = _load_env_config()
     env = MarketMakingEnv(config=env_config)
 
     state_dim = env.observation_space.shape[0]
@@ -127,6 +152,14 @@ def main():
     optimizer = optim.Adam(policy_net.parameters(), lr=LR)
     buffer = ReplayBuffer(BUFFER_CAPACITY)
 
+    model_path = "dqn_market_maker.pt"
+    if eval_only and os.path.exists(model_path):
+        print(f"[--eval-only] Loading existing model from {model_path}, skipping training")
+        policy_net.load_state_dict(torch.load(model_path, map_location=DEVICE))
+        target_net.load_state_dict(policy_net.state_dict())
+        _run_eval(policy_net, env, action_dim)
+        return
+
     global_step = 0
     total_profit = 0.0
 
@@ -138,7 +171,7 @@ def main():
         buyer_fills = 0
         seller_fills = 0
 
-        for step in range(MAX_STEPS_PER_EPISODE):
+        for step in range(env.max_steps):
             epsilon = epsilon_by_step(global_step)
             action = select_action(policy_net, state, epsilon, action_dim)
 
@@ -179,44 +212,63 @@ def main():
                 f"Seller Fills: {seller_fills}"
             )
 
-    torch.save(policy_net.state_dict(), "dqn_market_maker.pt")
-    print("Training complete. Model saved to dqn_market_maker.pt")
+    torch.save(policy_net.state_dict(), model_path)
+    print(f"Training complete. Model saved to {model_path}")
 
-    # Greedy-policy evaluation
-    eval_episodes = 50
-    eval_final_profits = []
-    eval_final_invs = []
-    eval_rewards = []
+    _run_eval(policy_net, env, action_dim)
 
+
+def _run_eval(policy_net, env, action_dim, n_episodes: int = 1000):
+    """Greedy-policy evaluation on seeds 0..n_episodes-1.
+
+    Writes results/eval_dqn.csv with columns matching eval_qlearning.csv
+    and eval_baseline.csv on the main branch: episode, reward, final_equity,
+    final_inventory.
+    """
     policy_net.eval()
-    for e in range(eval_episodes):
-        state, _ = env.reset(seed=10_000 + e)
-        done = False
-        ep_reward = 0.0
-        final_profit = 0.0
-        final_inv = 0
-        while not done:
-            action = select_action(policy_net, state, epsilon=0.0, action_dim=action_dim)
-            next_state, reward, terminated, truncated, info = env.step(action)
-            ep_reward += reward
-            final_profit = info["equity"]
-            final_inv = info["inventory"]
-            state = next_state
-            done = terminated or truncated
-        eval_rewards.append(ep_reward)
-        eval_final_profits.append(final_profit)
-        eval_final_invs.append(final_inv)
 
-    avg_eval_profit = float(np.mean(eval_final_profits))
-    avg_eval_abs_inv = float(np.mean(np.abs(eval_final_invs)))
-    avg_eval_reward = float(np.mean(eval_rewards))
-    print(
-        f"Eval (epsilon=0): "
-        f"Avg Reward: {avg_eval_reward:.2f} | "
-        f"Avg Final Profit: {avg_eval_profit:.2f} | "
-        f"Avg |Final Inv|: {avg_eval_abs_inv:.2f}"
-    )
+    os.makedirs("results", exist_ok=True)
+    csv_path = "results/eval_dqn.csv"
+
+    rewards = []
+    equities = []
+    inventories = []
+
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["episode", "reward", "final_equity", "final_inventory"])
+
+        for e in range(n_episodes):
+            state, _ = env.reset(seed=e)
+            done = False
+            ep_reward = 0.0
+            final_equity = 0.0
+            final_inv = 0
+            while not done:
+                action = select_action(policy_net, state, epsilon=0.0, action_dim=action_dim)
+                next_state, reward, terminated, truncated, info = env.step(action)
+                ep_reward += reward
+                final_equity = info["equity"]
+                final_inv = info["inventory"]
+                state = next_state
+                done = terminated or truncated
+
+            rewards.append(ep_reward)
+            equities.append(final_equity)
+            inventories.append(final_inv)
+            writer.writerow([e + 1, round(ep_reward, 4), round(final_equity, 4), final_inv])
+
+    print(f"\nEval ({n_episodes} episodes, seeds 0..{n_episodes - 1}, greedy):")
+    print(f"  mean_reward:              {float(np.mean(rewards)):.4f}")
+    print(f"  std_reward:               {float(np.std(rewards)):.4f}")
+    print(f"  mean_final_equity:        {float(np.mean(equities)):.4f}")
+    print(f"  mean_abs_final_inventory: {float(np.mean(np.abs(inventories))):.4f}")
+    print(f"  CSV saved to {csv_path}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--eval-only", action="store_true",
+                        help="Skip training and just evaluate the saved model")
+    args = parser.parse_args()
+    main(eval_only=args.eval_only)
