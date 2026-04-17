@@ -100,14 +100,6 @@ python compare_agents.py
 
 This reads the evaluation CSVs and produces a head-to-head comparison in `results/comparison.md`.
 
-### Run the Random Baseline 
-
-```bash
-python baseline.py
-```
-
-Runs 3,000 episodes with a uniform random policy and saves a reward curve to `baseline_curve.png`.
-
 ## Model Details
 
 ### Q-Learning
