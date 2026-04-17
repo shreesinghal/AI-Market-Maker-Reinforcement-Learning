@@ -28,7 +28,7 @@ config_path = "results/best_config.json"
 if not os.path.exists(config_path):
     print(f"'{config_path}' not found. Run tune.py first, or using defaults.")
     best_config = {
-        "env_alpha":                  0.01,
+        "env_alpha":                  0.005,
         "epsilon_decay":              0.9995,
         "learning_rate":              0.1,
         "gamma":                      0.99,
@@ -39,8 +39,7 @@ if not os.path.exists(config_path):
         "seller_arrival_rate":        1,
         "tick_size":                  0.05,
         "max_ticks":                  5,
-        "max_inventory":              100,
-        "initial_price":              100.0,
+        "max_inventory":              30,
         "stock_volatility":           0.0015,
         "adverse_selection_strength": 0.0025,
         "maker_fee":                  0.015,
@@ -60,7 +59,7 @@ env_cfg = {k: best_config[k] for k in best_config
 env_cfg["alpha"] = best_config["env_alpha"]
 
 # ── Train ─────────────────────────────────────────────────────────────────────
-N_TRAIN = 10_000
+N_TRAIN = 5_000
 print(f"\n=== Training for {N_TRAIN} episodes ===")
 
 env = MarketMakingEnv(config=env_cfg)
@@ -72,7 +71,7 @@ agent = QLearningAgent(env, config={
     "epsilon_decay":  best_config["epsilon_decay"],
 })
 
-rewards = agent.train(n_episodes=N_TRAIN, log_every=500)
+rewards, equities = agent.train(n_episodes=N_TRAIN, log_every=500)
 
 # Save Q-table
 qtable_path = "results/q_table.pkl"
@@ -105,6 +104,21 @@ plt.legend()
 plt.tight_layout()
 plt.savefig("results/training_curve.png", dpi=150)
 print("Training curve PNG saved to results/training_curve.png")
+plt.close()
+
+# Save profit tracking PNG
+smoothed_profit = np.convolve(equities, np.ones(window) / window, mode="valid")
+plt.figure(figsize=(10, 4))
+plt.plot(equities, alpha=0.3, label="Episode profit (equity)")
+plt.plot(range(window - 1, len(equities)), smoothed_profit, label=f"{window}-ep moving avg")
+plt.axhline(y=0, color="gray", linestyle="--", linewidth=0.8)
+plt.xlabel("Episode")
+plt.ylabel("Final Equity ($)")
+plt.title("Q-Learning — Profit Tracking During Training")
+plt.legend()
+plt.tight_layout()
+plt.savefig("results/profit_curve.png", dpi=150)
+print("Profit curve PNG saved to results/profit_curve.png")
 plt.close()
 
 # ── Evaluate Q-learning and baseline on same seeds ────────────────────────────
@@ -165,6 +179,43 @@ with open(bl_csv_path, "w", newline="") as f:
             round(bl_inventories[i], 4),
         ])
 print(f"Baseline eval saved to {bl_csv_path}")
+
+# ── Eval comparison graphs ───────────────────────────────────────────────────
+eval_window = 50
+# Reward comparison
+ql_smooth_r = np.convolve(ql_stats["rewards"], np.ones(eval_window) / eval_window, mode="valid")
+bl_smooth_r = np.convolve(bl_rewards, np.ones(eval_window) / eval_window, mode="valid")
+plt.figure(figsize=(10, 4))
+plt.plot(ql_stats["rewards"], alpha=0.15, color="tab:blue")
+plt.plot(bl_rewards, alpha=0.15, color="tab:orange")
+plt.plot(range(eval_window - 1, N_EVAL), ql_smooth_r, label="Q-Learning", color="tab:blue")
+plt.plot(range(eval_window - 1, N_EVAL), bl_smooth_r, label="Random Baseline", color="tab:orange")
+plt.xlabel("Eval Episode")
+plt.ylabel("Total Reward")
+plt.title("Eval — Reward: Q-Learning vs Random Baseline")
+plt.legend()
+plt.tight_layout()
+plt.savefig("results/eval_reward_comparison.png", dpi=150)
+print("Eval reward comparison PNG saved to results/eval_reward_comparison.png")
+plt.close()
+
+# Profit comparison
+ql_smooth_e = np.convolve(ql_stats["equities"], np.ones(eval_window) / eval_window, mode="valid")
+bl_smooth_e = np.convolve(bl_equities, np.ones(eval_window) / eval_window, mode="valid")
+plt.figure(figsize=(10, 4))
+plt.plot(ql_stats["equities"], alpha=0.15, color="tab:blue")
+plt.plot(bl_equities, alpha=0.15, color="tab:orange")
+plt.plot(range(eval_window - 1, N_EVAL), ql_smooth_e, label="Q-Learning", color="tab:blue")
+plt.plot(range(eval_window - 1, N_EVAL), bl_smooth_e, label="Random Baseline", color="tab:orange")
+plt.axhline(y=0, color="gray", linestyle="--", linewidth=0.8)
+plt.xlabel("Eval Episode")
+plt.ylabel("Final Equity ($)")
+plt.title("Eval — Profit: Q-Learning vs Random Baseline")
+plt.legend()
+plt.tight_layout()
+plt.savefig("results/eval_profit_comparison.png", dpi=150)
+print("Eval profit comparison PNG saved to results/eval_profit_comparison.png")
+plt.close()
 
 # ── Win rate (Q-learning reward > baseline reward, same seed) ─────────────────
 wins = sum(1 for q, b in zip(ql_stats["rewards"], bl_rewards) if q > b)

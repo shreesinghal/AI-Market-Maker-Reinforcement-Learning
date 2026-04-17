@@ -99,21 +99,23 @@ class QLearningAgent:
 
         Returns
         -------
-        episode_rewards : list of float
-            Total reward per episode.
+        (episode_rewards, episode_equities) : tuple of (list[float], list[float])
+            Total reward and final equity per episode.
         """
         episode_rewards = []
+        episode_equities = []
 
         for episode in range(1, n_episodes + 1):
             obs, _ = self.env.reset()
             state = self.discretize(obs)
             total_reward = 0.0
             done = False
+            info = {}
 
             while not done:
                 action = self.select_action(state)
 
-                next_obs, reward, terminated, truncated, _ = self.env.step(action)
+                next_obs, reward, terminated, truncated, info = self.env.step(action)
                 done = terminated or truncated
 
                 next_state = self.discretize(next_obs)
@@ -124,6 +126,7 @@ class QLearningAgent:
 
             self.decay_epsilon()
             episode_rewards.append(total_reward)
+            episode_equities.append(info.get("equity", 0.0))
 
             if episode % log_every == 0:
                 avg = np.mean(episode_rewards[-log_every:])
@@ -131,7 +134,7 @@ class QLearningAgent:
                       f"Avg reward (last {log_every}): {avg:>8.2f} | "
                       f"Epsilon: {self.epsilon:.4f}")
 
-        return episode_rewards
+        return episode_rewards, episode_equities
 
     # ── Evaluation ───────────────────────────────────────────────────────
 
