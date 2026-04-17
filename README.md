@@ -26,7 +26,7 @@ Both agents are trained and evaluated on the same environment configuration so t
 │   └── Seller.py             # Stochastic seller model
 ├── q_learning_agent.py       # Q-learning agent
 ├── dqn_agent.py              # DQN neural network + replay buffer
-├── train_final.py            # Train & evaluate Q-learning
+├── train_qlearning.py            # Train & evaluate Q-learning
 ├── train_dqn.py              # Train & evaluate DQN
 ├── baseline.py               # Random baseline evaluation
 ├── compare_agents.py         # Side-by-side comparison
@@ -57,7 +57,7 @@ The core dependencies are:
 ### Train the Q-Learning Agent
 
 ```bash
-python train_final.py
+python train_qlearning.py
 ```
 
 **Outputs:**
@@ -99,14 +99,6 @@ python compare_agents.py
 ```
 
 This reads the evaluation CSVs and produces a head-to-head comparison in `results/comparison.md`.
-
-### Run the Random Baseline 
-
-```bash
-python baseline.py
-```
-
-Runs 3,000 episodes with a uniform random policy and saves a reward curve to `baseline_curve.png`.
 
 ## Model Details
 

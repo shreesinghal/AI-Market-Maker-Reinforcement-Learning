@@ -39,7 +39,7 @@ for name, path in FILES:
     })
 
 if not rows:
-    raise SystemExit("No eval CSVs found. Run train_final.py + DQN eval first.")
+    raise SystemExit("No eval CSVs found. Run train_qlearning.py + DQN eval first.")
 
 # ── Terminal printout ─────────────────────────────────────────────────────────
 print(f"\n{'Agent':11} {'episodes':>9} {'mean_reward':>12} {'std_reward':>11} "
