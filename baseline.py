@@ -4,9 +4,10 @@ from market_maker_env import MarketMakingEnv
 
 env = MarketMakingEnv(config={
     "max_steps":                   500,
-    "buyer_arrival_rate":          1,
-    "seller_arrival_rate":         1,
-    "alpha":                       0.01,
+    "buyer_arrival_rate":          3,
+    "seller_arrival_rate":         3,
+    "max_inventory":               30,
+    "alpha":                       0.001,
     "tick_size":                   0.05,
     "max_ticks":                   5,
     "stock_volatility":            0.0015,
