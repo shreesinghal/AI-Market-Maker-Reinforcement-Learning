@@ -4,6 +4,47 @@ from gymnasium import spaces
 from Buyer import Buyer
 from Seller import Seller
 from Stock import Stock
+import torch
+import torch.nn as nn
+import random
+from collections import deque
+
+class DQN(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super().__init__()
+
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, action_dim)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch)
+
+        return (
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+            np.array(next_states, dtype=np.float32),
+            np.array(dones, dtype=np.float32),
+        )
+
+    def __len__(self):
+        return len(self.buffer)
 
 
 class MarketMakingEnv(gym.Env):
@@ -19,9 +60,9 @@ class MarketMakingEnv(gym.Env):
 
         # Default config
         cfg = config or {}
-        self.tick_size = cfg.get("tick_size", 0.05)         # Minimum price increment.
-        self.max_ticks = cfg.get("max_ticks", 5)            # Max quote offset in ticks.
-        self.max_inventory = cfg.get("max_inventory", 100)  # Inventory limit (long/short).
+        self.tick_size = cfg.get("tick_size", 0.01)       # minimum price increment
+        self.max_ticks = cfg.get("max_ticks", 5)           # max ticks away from mid
+        self.max_inventory = cfg.get("max_inventory", 100)  # inventory cap (long or short)
         self.initial_price = cfg.get("initial_price", 100.0)
         self.max_steps = cfg.get("max_steps", 1000)         # Episode length.
         self.stock_volatility = cfg.get("stock_volatility", 0.0015)
@@ -46,11 +87,19 @@ class MarketMakingEnv(gym.Env):
             drift=self.stock_drift,
         )
 
+        # Initialize stock object
+        self.stock = Stock(
+            "AAPL",
+            self.initial_price,
+            volatility=self.stock_volatility,
+            drift=self.stock_drift,
+        )
+
         # Action space: Discrete(max_ticks * max_ticks)
         # action = bid_ticks * max_ticks + ask_ticks  (both 0-indexed, offset = ticks+1)
         self.action_space = spaces.Discrete(self.max_ticks * self.max_ticks)
 
-        # Observation = [inv/max_inv, mid_price/initial_price, volatility, time_remaining]
+        # Observation = [inventory, mid_price, volatility, time_remaining]
         self.observation_space = spaces.Box(
             low=np.array([
                 -1.0,  # normalized inventory
@@ -73,7 +122,7 @@ class MarketMakingEnv(gym.Env):
         self.volatility = self.stock.volatility
         self.time_remaining = 1.0
         self.current_step = 0
-        self.cash = 0.0
+        self.cash = 0.0  # tracks money from trades
         self.last_mid_price = self.initial_price
 
     def reset(self, seed=None, options=None):
@@ -119,8 +168,9 @@ class MarketMakingEnv(gym.Env):
         spread_capture = 0.0
         filled_buys = 0
         filled_sells = 0
+        hit_inventory_cap = False
 
-        # Buyer arrivals hit the ask (agent sells, inventory decreases)
+        # Buyer arrivals hit the ask
         n_buyers = self.np_random.poisson(lam=self.buyer_arrival_rate)
         for _ in range(n_buyers):
             buyer = Buyer()
@@ -131,7 +181,7 @@ class MarketMakingEnv(gym.Env):
                     spread_capture += ask_offset
                     filled_buys += 1
 
-        # Seller arrivals hit the bid (agent buys, inventory increases)
+        # Seller arrivals hit the bid
         n_sellers = self.np_random.poisson(lam=self.seller_arrival_rate)
         for _ in range(n_sellers):
             seller = Seller()
@@ -144,16 +194,16 @@ class MarketMakingEnv(gym.Env):
 
         hit_inventory_cap = abs(self.inventory) >= self.max_inventory
 
-        # Price change with adverse selection
+        # Price change
         self.stock.step(rng=self.np_random)
         self.mid_price = self.stock.get_price()
         total_fills = filled_buys + filled_sells
         if total_fills > 0:
-            # Buy pressure moves price up, sell pressure moves it down
+            # Adverse selection: buy pressure tends to move price up,
+            # sell pressure tends to move price down
             flow_imbalance = (filled_buys - filled_sells) / total_fills
             adverse_move = self.adverse_selection_strength * flow_imbalance
             self.mid_price *= (1.0 + adverse_move)
-
         price_return = (self.mid_price - self.last_mid_price) / max(self.last_mid_price, 1e-8)
         self.volatility = (
             self.vol_ewma_beta * self.volatility
@@ -161,11 +211,12 @@ class MarketMakingEnv(gym.Env):
         )
         self.last_mid_price = self.mid_price
 
-        # Reward = normalized equity change - ramped inventory penalty
+        # Reward = equity change - inventory risk.
         equity = self.cash + self.inventory * self.mid_price
         profit_change = (equity - self.prev_equity) / self.initial_price
 
         inv_frac_abs = abs(self.inventory / self.max_inventory)
+        # Penalty ramps up near the end of the episode.
         if self.time_risk_start_frac <= 0:
             time_progress = 1.0
         else:
@@ -175,9 +226,11 @@ class MarketMakingEnv(gym.Env):
                 1.0,
             )
         risk_multiplier = 1.0 + self.time_risk_k * time_progress
+
         inventory_penalty = self.alpha * (inv_frac_abs ** 2) * risk_multiplier
 
         reward = profit_change - inventory_penalty
+        # Bound rewards for training stability.
         reward = np.clip(reward, -5.0, 5.0)
 
         self.prev_equity = equity
@@ -189,6 +242,7 @@ class MarketMakingEnv(gym.Env):
         terminated = hit_inventory_cap
         truncated = self.current_step >= self.max_steps
         if terminated or truncated:
+            # Extra inventory penalty at episode end
             terminal_penalty = self.terminal_inventory_penalty * (inv_frac_abs ** 2)
             reward -= terminal_penalty
 
@@ -212,7 +266,7 @@ class MarketMakingEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def _get_observation(self):
-        """Return normalized observation vector."""
+        #Return normalized observation vector
         return np.array([
             self.inventory / self.max_inventory,
             self.mid_price / self.initial_price,
@@ -221,7 +275,7 @@ class MarketMakingEnv(gym.Env):
         ], dtype=np.float32)
 
     def render(self):
-        """Print current state for quick debugging."""
+        #Print current state for quick debugging
         print(
             f"Step: {self.current_step} | "
             f"Mid: ${self.mid_price:.2f} | "

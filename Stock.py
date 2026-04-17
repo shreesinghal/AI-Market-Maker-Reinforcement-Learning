@@ -1,4 +1,4 @@
-# Represents a Stock object in the market that has a constantly changing price.
+import random# Represents a Stock object in the market that has a constantly changing price.
 
 class Stock:
     def __init__(self, abbr, price, volatility=0.01, drift=0.0):
@@ -39,10 +39,3 @@ class Stock:
         # Prevent negative price
         if self.price <= 0:
             self.price = 0.01
-
-
-if __name__ == "__main__":
-    s = Stock("test", 100.0, volatility=0.02)
-    for t in range(10):
-        s.step()
-        print(s)
