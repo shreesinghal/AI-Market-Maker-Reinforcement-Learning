@@ -1,9 +1,9 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from Buyer import Buyer
-from Seller import Seller
-from Stock import Stock
+from .Buyer import Buyer
+from .Seller import Seller
+from .Stock import Stock
 
 
 class MarketMakingEnv(gym.Env):

@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from market_maker_env import MarketMakingEnv
+from environment import MarketMakingEnv
 
 env = MarketMakingEnv(config={
     "max_steps":                   500,

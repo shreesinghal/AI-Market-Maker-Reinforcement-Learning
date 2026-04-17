@@ -1,6 +1,6 @@
 import numpy as np
 import pickle
-from market_maker_env import MarketMakingEnv
+from environment import MarketMakingEnv
 
 
 class QLearningAgent:

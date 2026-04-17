@@ -15,7 +15,7 @@ import csv
 import json
 import os
 import numpy as np
-from market_maker_env import MarketMakingEnv
+from environment import MarketMakingEnv
 from q_learning_agent import QLearningAgent
 
 os.makedirs("results", exist_ok=True)

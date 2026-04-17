@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from market_maker_env import MarketMakingEnv
-from dqn_agent         import DQN, ReplayBuffer
+from environment import MarketMakingEnv
+from dqn_agent   import DQN, ReplayBuffer
 
 
 # Hyperparameters
