@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Local training runs you don't want committed
+# (results/ stays tracked since it holds the reference artifacts)
