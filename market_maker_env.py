@@ -60,9 +60,9 @@ class MarketMakingEnv(gym.Env):
 
         # Default config
         cfg = config or {}
-        self.tick_size = cfg.get("tick_size", 0.05)         # Minimum price increment.
-        self.max_ticks = cfg.get("max_ticks", 5)            # Max quote offset in ticks.
-        self.max_inventory = cfg.get("max_inventory", 100)  # Inventory limit (long/short).
+        self.tick_size = cfg.get("tick_size", 0.01)       # minimum price increment
+        self.max_ticks = cfg.get("max_ticks", 5)           # max ticks away from mid
+        self.max_inventory = cfg.get("max_inventory", 100)  # inventory cap (long or short)
         self.initial_price = cfg.get("initial_price", 100.0)
         self.max_steps = cfg.get("max_steps", 1000)         # Episode length.
         self.stock_volatility = cfg.get("stock_volatility", 0.0015)
@@ -87,10 +87,16 @@ class MarketMakingEnv(gym.Env):
             drift=self.stock_drift,
         )
 
-        # Action space
-        # Each action is a pair of integers: (bid_offset, ask_offset)
-        # MultiDiscrete([5, 5]) means each value ranges from 0 to 4
-        # We add 1 when using them so the actual range is 1 to 5 ticks
+        # Initialize stock object
+        self.stock = Stock(
+            "AAPL",
+            self.initial_price,
+            volatility=self.stock_volatility,
+            drift=self.stock_drift,
+        )
+
+        # Action space: Discrete(max_ticks * max_ticks)
+        # action = bid_ticks * max_ticks + ask_ticks  (both 0-indexed, offset = ticks+1)
         self.action_space = spaces.Discrete(self.max_ticks * self.max_ticks)
 
         # Observation = [inventory, mid_price, volatility, time_remaining]
@@ -141,9 +147,9 @@ class MarketMakingEnv(gym.Env):
         """
         At each time step:
         1. Decode action into bid/ask prices
-        2. Simulate price movement
-        3. Check if any orders get filled
-        4. Calculate reward
+        2. Simulate buyer/seller arrivals and fills
+        3. Step price with adverse selection + EWMA volatility update
+        4. Calculate reward (normalized profit - ramped inventory penalty)
         5. Return (observation, reward, terminated, truncated, info)
         """
 
@@ -242,13 +248,19 @@ class MarketMakingEnv(gym.Env):
 
         observation = self._get_observation()
         info = {
-            "equity": equity,
-            "inventory": self.inventory,
-            "cash": self.cash,
-            "mid_price": self.mid_price,
+            "equity":        equity,
+            "inventory":     self.inventory,
+            "cash":          self.cash,
+            "mid_price":     self.mid_price,
+            "bid_price":     bid_price,
+            "ask_price":     ask_price,
+            "bid_offset":    int(bid_ticks + 1),
+            "ask_offset":    int(ask_ticks + 1),
             "spread_capture": spread_capture,
-            "filled_buys": filled_buys,
-            "filled_sells": filled_sells,
+            "filled_buys":   filled_buys,
+            "filled_sells":  filled_sells,
+            "n_buyers":      int(n_buyers),
+            "n_sellers":     int(n_sellers),
         }
 
         return observation, reward, terminated, truncated, info
@@ -271,4 +283,3 @@ class MarketMakingEnv(gym.Env):
             f"Cash: ${self.cash:.2f} | "
             f"Time left: {self.time_remaining:.2%}"
         )
-

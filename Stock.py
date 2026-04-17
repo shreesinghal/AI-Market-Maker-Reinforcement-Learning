@@ -31,6 +31,7 @@ class Stock:
     def step(self, rng):
         """
         Advance the price one step using a Gaussian random walk.
+        rng : numpy random Generator (e.g. env.np_random)
         """
         shock = float(rng.normal(self.drift, self.volatility))
         self.price *= (1 + shock)

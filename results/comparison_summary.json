@@ -1,0 +1,18 @@
+{
+  "qlearning": {
+    "mean_reward": 0.5298,
+    "std_reward": 0.1097,
+    "mean_final_equity": 57.2323,
+    "mean_abs_final_inventory": 2.267,
+    "num_eval_episodes": 1000
+  },
+  "baseline": {
+    "mean_reward": -0.5135,
+    "std_reward": 0.7381,
+    "mean_final_equity": 41.9597,
+    "mean_abs_final_inventory": 18.194,
+    "num_eval_episodes": 1000
+  },
+  "win_rate": 0.942,
+  "seed": 0
+}

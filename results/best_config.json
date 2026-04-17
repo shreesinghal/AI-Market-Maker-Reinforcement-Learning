@@ -1,0 +1,22 @@
+{
+  "env_alpha": 0.005,
+  "epsilon_decay": 0.9985,
+  "learning_rate": 0.01,
+  "gamma": 0.99,
+  "epsilon_start": 1.0,
+  "epsilon_min": 0.05,
+  "max_steps": 500,
+  "buyer_arrival_rate": 1,
+  "seller_arrival_rate": 1,
+  "tick_size": 0.05,
+  "max_ticks": 5,
+  "max_inventory": 30,
+  "initial_price": 100.0,
+  "stock_volatility": 0.0015,
+  "adverse_selection_strength": 0.0025,
+  "maker_fee": 0.015,
+  "terminal_inventory_penalty": 1.0,
+  "time_risk_start_frac": 0.25,
+  "time_risk_k": 3.0,
+  "vol_ewma_beta": 0.94
+}
